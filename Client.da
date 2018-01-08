@@ -3,7 +3,6 @@ import nacl.signing
 import time
 import nacl.hash
 import random
-#clientm = import_da('Client')
 #replicam = import_da('Replica')
 HASHER = nacl.hash.sha256
 class Client(process):

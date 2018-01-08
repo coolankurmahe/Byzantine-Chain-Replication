@@ -1,5 +1,4 @@
 #import sys
-#sys.path.append('/Library/Python/2.7/site-packages')
 #sys.path.append('/System/Library')
 #sys.path.append('/System/Library/Frameworks/Python.framework/Versions/2.7/Extras/lib/python')
 import nacl.encoding

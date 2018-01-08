@@ -12,7 +12,6 @@ import sys
 HASHER = nacl.hash.sha256
 
 
-#clientm = import_da('Client')
 #replicam = import_da('Replica')
 class Replica(process):
 	def setup():
