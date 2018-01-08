@@ -27,9 +27,18 @@ class Client(process):
 		self.clienttimeout = 1000
 		
 		self.resultreceived = 0
+		self.resultcachereceived = 0
+		self.reconfigoccured = 0
+		self.lastreconfigured = 0
+		self.clientconfignum = 0 
+		self.headtimeout = 2000
+		self.lastworkbreak = 0
+		self.oldworkdone = 0
+		self.localClientDict = dict()
+
 		#self.rhead = replicas[0]
 		#self.rtail = replicas[nreplica-1]
-	def receive(msg=("setupclient",clientsparam,nclientparam,c_indexparam,replicasparam,nreplicaparam,olympusparam,workparam,clienttimeoutparam), ):
+	def receive(msg=("setupclient",clientsparam,nclientparam,c_indexparam,replicasparam,nreplicaparam,olympusparam,workparam,clienttimeoutparam,clientconfignumparam,headtimeoutparam), ):
 		#output("inside client receive setup")
 		nclient = nclientparam
 		c_index = c_indexparam
@@ -42,6 +51,8 @@ class Client(process):
 		rhead = replicas[0]
 		rtail = replicas[nreplica-1]
 		setcompleted  = 1
+		clientconfignum = clientconfignumparam
+		headtimeout = headtimeoutparam
 		#output("inside client receive setup --before sending done1 to ITSELF")
 		#send(("done1",),to=self)
 
@@ -141,7 +152,97 @@ class Client(process):
 			output("Wrong operation performed at client - ",operation)
 								
 		###########END CLIENT GRADING 5 - check that dictionary contains expected content at end of test case#######
+	def dosomework():
+		oldworkdone = 0		
+		
+		#worklen = len(work)
 
+		#while worklen>0:
+		output("inside dosomework")
+		output("work is ",work,"  worklen is ",len(work))
+		for operation in work:
+			#output("WORKKKKKKKKK -----> ",work)
+			
+			output("Operation at the start of Client Id",c_index," is ",operation)		
+			operation = operation.strip()
+			if not operation.startswith("pseudorandom"):
+				requestid = requestid + 1
+				#output("client starting11111111")
+				operationenc = str.encode(operation)
+				#output("client starting222222")
+				operationsigned = clientprivatekey.sign(operationenc)
+				#output("client starting33333333")
+				#operationsigned = signit(operation)
+				retransmitfg = 0
+				
+				rhead = replicas[0]
+				rtail = replicas[nreplica-1]
+
+				send(("clientrequest",operationsigned,c_index,requestid,retransmitfg),to=self.rhead)
+										
+				testresultwithlocaldict(localClientDict,operation)
+				#output("localClientDict : ",localClientDict, "of client ",c_index)
+
+			#await(some(received(("donerep",operation,c_index), from_=p)))
+				#if await(some(received(("ResultProofs",result,resultproof),from_=Replica))) :
+				if await(resultreceived  == 1 ):
+					resultreceived = 0
+					
+
+				elif timeout(clienttimeout):
+					output("INSIDE TIMEOUT")
+					output("Client also checks if the configuration has been changed")
+
+					send(("ifconfigchanged",c_index,clientconfignum),to=olympus)
+
+					retransmitfg = 1
+					for i in range(0,nreplica):	
+						send(("clientrequest",operationsigned,c_index,requestid,retransmitfg),to=replicas[i])
+					
+					#tottimer = headtimeout+2000
+					'''
+					if await(resultcachereceived  == 1 ):
+						resultcachereceived = 0
+					
+
+					elif timeout(tottimer):
+						output("waiting to clear retransmitted opeartion after timeout")
+					'''
+					time.sleep (4000.0 / 1000.0)
+
+				'''
+				if reconfigoccured == 1:
+					output(" work after reconfig is ", work)
+					output("reconfigoccured - Sending further operations to new configuration..... ")
+					reconfigoccured = 0
+					#worklen = len(work)
+					lastworkbreak = 1
+					break
+				'''
+
+				'''
+				if reconfigoccured == 1:
+					reconfigoccured = 0
+					worklen = len(work)
+					break
+				'''
+			#worklen = worklen - 1
+			#output("111111111 work ",work, " clientconfignum = ", clientconfignum)
+
+		if reconfigoccured == 1:
+			reconfigoccured = 0
+			#output("inside dosomework :reconfigure deteced")
+			lastworkbreak = 1
+
+
+		oldworkdone = 1
+		
+		#output("localClientDict : ",localClientDict, "of client ",c_index)
+
+		#send(('Done',), to=parent())
+		output("final done sent to olympus")
+		send(('Done22',), to=olympus)
+		
 	def run():
 		output("client starting")
 		#await(received(("done1",),))
@@ -151,7 +252,7 @@ class Client(process):
 		#await(received(("replicasetupcompleted",),from_=Replica))
 		#output("hey client")
 		time.sleep (500.0 / 1000.0)
-		localClientDict = dict()
+
 		for operation in work:
 			operation = operation.strip()
 			if operation.startswith("pseudorandom"):
@@ -189,45 +290,26 @@ class Client(process):
 					work.append(operation)
 					#operationenc = str.encode(operation)
 					#operationsigned = clientprivatekey.sign(operationenc)
-					
+		for operation in work:
+			operation = operation.strip()
+			if operation.startswith("pseudorandom"):
+				work.remove(operation)			
 				############ PSEUDOOOOOOO RANDOOMMMMMMNMNMNNNNNN.   ENDS .  ##################
 
-		for operation in work:	
-			output("Operation at the start of Client Id",c_index," is ",operation)		
-			operation = operation.strip()
-			if not operation.startswith("pseudorandom"):
-				requestid = requestid + 1
-				#output("client starting11111111")
-				operationenc = str.encode(operation)
-				#output("client starting222222")
-				operationsigned = clientprivatekey.sign(operationenc)
-				#output("client starting33333333")
-				#operationsigned = signit(operation)
-				retransmitfg = 0
-				
-				send(("clientrequest",operationsigned,c_index,requestid,retransmitfg),to=self.rhead)
-										
-				testresultwithlocaldict(localClientDict,operation)
-				#output("localClientDict : ",localClientDict, "of client ",c_index)
-
-			#await(some(received(("donerep",operation,c_index), from_=p)))
-				#if await(some(received(("ResultProofs",result,resultproof),from_=Replica))) :
-				if await(resultreceived  == 1 ):
-					resultreceived = 0
-					
-
-				elif timeout(clienttimeout):
-					output("INSIDE TIMEOUT")
-					retransmitfg = 1
-					for i in range(0,nreplica):	
-						send(("clientrequest",operationsigned,c_index,requestid,retransmitfg),to=replicas[i])
-
-
-			
+		dosomework()
 		output("localClientDict : ",localClientDict, "of client ",c_index)
-
-
 		await(received(("clientdone",),))
+
+
+	def receive(msg=("configchangedsetup",replicasparam,nreplicaparam,confignum),from_=Olympus):	
+
+		output("Yes the configuration has been changed.Notification received to Client from Olympus")
+
+		clientconfignum = confignum 
+		replicas = replicasparam
+		nreplica = nreplicaparam
+
+
 			#output("operation in client run",operation)
 		#output("client ",c_index,"run successful")
 	def receive(msg=("ResultProofs",result,signedresultproofs,resultreceivedparam,slot),from_=Replica):
@@ -243,13 +325,18 @@ class Client(process):
 		try:
 			for i,val in enumerate(list(signedresultproofs)):
 				
+				#output("replicapublicverifykeys[i]",str(replicapublicverifykeys[i]))
+				#output("signedresultproofs[i]",str(signedresultproofs[i]))
 				resultstmtenc = replicapublicverifykeys[i].verify(signedresultproofs[i])
-				
+				#output("222222")
 				resultstmt = resultstmtenc.decode()
 				resultstmtarr.append(resultstmt)
 
-		
+			
 			output("Result Statements verified successfully for all replicas resultstmtarr is ",resultstmtarr)
+
+
+			
 
 			allresultvalid = True
 			output("RESULT from tail is  ",result)
@@ -272,16 +359,19 @@ class Client(process):
 			
 
 			if allresultvalid == None :
-				output(" Sending reconfig to Olympus :One or more than one replicas have inconsistent result")
-				send(("reconfigrqt",),to=olympus)
+				output(" Sending reconfig to Olympus :One or more than one replicas have inconsistent result having c_index",c_index)
+				send(("reconfigrqtC",c_index),to=olympus)
 
 		except 	nacl.exceptions.BadSignatureError :
-				output(" Sending reconfig to Olympus :One or more than one resultproofs have been tempered")
+				output(" BadSignatureError : Sending reconfig to Olympus :One or more than one resultproofs have been tempered")
+				send(("reconfigrqtC",c_index),to=olympus)
 
 
 		
 
 	def receive(msg=("CachedResultProofs",result,signedresultproofs),from_=Replica):
+
+		resultcachereceived = 1
 
 		output("Client received response from 1 of the replica after sending request to all after time out")
 
@@ -320,11 +410,54 @@ class Client(process):
 
 			if allresultvalid == None :
 				output(" Sending reconfig to Olympus :One or more than one replicas have inconsistent result")
-				send(("reconfigrqt",),to=olympus)
+				send(("reconfigrqtC",),to=olympus)
 
 		except 	nacl.exceptions.BadSignatureError :
 				output(" Sending reconfig to Olympus :One or more than one resultproofs have been tempered")
 
 
-	
+	def receive(msg=("clientlastexecutedrequest",lastClientResult,lastClientOpNum),from_=Olympus ):
+		reconfigoccured = 1
+		lastreconfigured = 1
+		lastClientOpNum = lastClientOpNum - 1
+		resultreceived = 1
+		#As you are not sending the result statement anywhere, just printing it.
+		if lastClientOpNum >=0:
+			output("Last executed result before Reconfiguration : ",lastClientResult)
+			output("Last executed operation number was : ",lastClientOpNum+1, " and operation wass ",work[lastClientOpNum])
+		else:
+			output("There was no Last executed operation")
+		#time.sleep (500.0 / 1000.0)
+		#output("Enough of waiting. Lets get back to work. Flood head with some operations")
+		
+		output("WORK was : ",work)
+		if lastClientOpNum+1 < len(work):
+			work = work[lastClientOpNum+1:]
+			output("WORK is : ",work)
 
+			#if oldworkdone == 1:
+			if len(work) > 0:
+				dosomework()
+				output("localClientDict : ",localClientDict, "of client ",c_index)
+
+			else:
+				if await(lastworkbreak  == 1 ):
+					lastworkbreak = 0
+
+				if len(work) > 0:
+					dosomework()
+					output("localClientDict : ",localClientDict, "of client ",c_index)
+
+			requestid=0
+		else:
+			work = []
+			output("222WORK is : ",work)
+			output("localClientDict : ",localClientDict, "of client ",c_index)
+			'''
+			if await(lastworkbreak  == 1 ):
+				lastworkbreak = 0
+
+			if len(work) > 0:
+			dosomework()
+			'''
+			#dosomework()

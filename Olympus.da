@@ -7,20 +7,78 @@ import nacl.signing
 import time
 import nacl.hash
 import random
+from itertools import combinations
+import collections
 
 HASHER = nacl.hash.sha256
 clientm = import_da('Client')
 replicam = import_da('Replica')
 
 class Olympus(process):
-	def setup(replicas,nreplica,clients,nclient):
+	def setup(replicas,nreplica,clients,nclient,fail_per_config_param,h_timeout,nh_timeout,chkpt_interval):
 		#output("olympus setup successful")
+		self.fail_per_config = fail_per_config_param
 		self.replicaprivatesignkeys = []
 		self.replicapublicverifykeys = []
 		self.clientprivatesignkeys = []
 		self.clientpublicverifykeys = []
+		self.olympus_signing_key = nacl.signing.SigningKey.generate()
+		self.olympus_verify_key = olympus_signing_key.verify_key
+		self.Rc = list()
+		self.find_t = 0
+		self.receivedReplicaCount = 0
+		self.hist_for_replica = dict()
+		self.chkptProof_for_replica = dict()
+		self.keepSearchingQuorum = 0
+		self.random_quorum = list()
+		self.chlist = list()
+		self.faulty_replica_quorum = 0
+		self.finalch = None #this should not be none. but type(statehash)
+		#self.counter = 0
+		self.lastClientOpNum = []
+		self.lastClientResult = []
+		self.confignum = 0
+		self.reconfiginprocess = 0
+		self.largest_history_replica_index = 0
+		self.largest_history_replica_length = 0
+
+		self.end_time = 0
+		self.start_time = 0
+		self.clientdonecount = 0
+		
 	def run():
 		output("key generation started")
+		output("starting replica testing")
+
+		start_time = time.time()
+
+		'''
+		output("1111111")
+		ReplicaNodeName = 'ReplicaNode0'
+		replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+		start(replica1)
+		send(("testreplica",2),to=replica1)
+
+		output("222222")
+
+		ReplicaNodeName = 'ReplicaNode1'
+		replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+		start(replica1)
+		send(("testreplica",2),to=replica1)
+
+		output("333333")
+		'''
+		
+		#output("v nreplica ", nreplica)
+		'''
+		for i in range(0,nreplica):
+			output('ReplicaNode' + str(i))
+			ReplicaNodeName = 'ReplicaNode' + str(i)
+			replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+			start(replica1)
+		'''
+
+		
 		for i in range(0,nreplica):	
 			signing_key = nacl.signing.SigningKey.generate()
 			replicaprivatesignkeys.append(signing_key)
@@ -42,10 +100,433 @@ class Olympus(process):
 			send(("clientkeys",clientprivatesignkeys[i],replicapublicverifykeys),to=clients[i])
 
 		output("key generation ended")
+
+
 		await(received(("olympusdone",),))
 		
+	#VPhase3 STARTS
+	def receive(msg=("Done22",), from_=Client):
+		clientdonecount += 1
+
+		#output("received done22")
+		if clientdonecount == nclient:
+			end_time = time.time()
+			output("elapsed time (seconds): ", end_time - start_time)
+		
+		#clientdonecount = 0
+	
+	def receive(msg=("reconfigrqtR",r_index), from_=Replica):
+		output("reconfigrqt from Replica ",r_index)
+		#return
+
+		if reconfiginprocess == 1:
+			output("ignoring reconfigrqt from Replica ",r_index,"since reconfig is already in process")
+			return
+		else:
+			reconfiginprocess = 1
+
+		'''
+		send(("donerep",),to=replicas[0])
+
+		ReplicaNodeName = 'ReplicaNode4'
+		replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+		start(replica1)
+		send(("testreplica",2),to=replica1)
+		'''
+
+		tempstr='wedge_request'
+		olympus_signed_wedgerequest = olympus_signing_key.sign(str.encode(tempstr))
+		output("olympus_signed_wedgerequest ",olympus_signed_wedgerequest)
+		
+		for i in range(0,nreplica):	
+			#output("before sending wedge request to replica ",r_index)		
+			send(("wedgeRequest",olympus_signed_wedgerequest,olympus_verify_key,confignum),to=replicas[i])
+			
+	'''
+	def receive(msg=("get_confignum",r_index), from_=Client):
+		send(("send_confignum",confignum),to=replicas[r_index])
+	'''
+	def receive(msg=("reconfigrqtC",c_index), from_=Client):
+		output("reconfigrqt from Client ",c_index)
+		#return
+
+		if reconfiginprocess == 1:
+			output("ignoring reconfigrqt from Client ",c_index,"since reconfig is already in process")
+			return
+		else:
+			reconfiginprocess = 1
+
+		#olympus_signing_key = nacl.signing.SigningKey.generate()
+		tempstr='wedge_request'
+		olympus_signed_wedgerequest = olympus_signing_key.sign(str.encode(tempstr))
+		output("olympus_signed_wedgerequest ",olympus_signed_wedgerequest)
+		#olympus_verify_key = olympus_signing_key.verify_key
+		for i in range(0,nreplica):			
+			send(("wedgeRequest",olympus_signed_wedgerequest,olympus_verify_key,confignum),to=replicas[i])
+	
+	#combined wedgehist, combined wedgechkptproof, list of replicas that have replied with wedgeStatement
+	#WH = list()
+	#WC = list()
+	#Rc = list()
+	
+	
+	
+	def checkAcceptableQuorum(random_quorum,hquorum,cquorum):
+		
+		validaterquorum = list(random_quorum)
+		validaterquorum.sort()
+		for i in range(len(validaterquorum)-1):
+			if len(hist_for_replica[validaterquorum[i]]) < len(hist_for_replica[validaterquorum[i+1]]):
+				output("QUORUM VALIDATION FAILED AT STEP 1 BECAUSE HISTORY MISMATCH (maybe truncate_history)")
+				return False
+		
+		#qsize = len(random_quorum)
+		random_quorum_slot_dict = dict()
+		output("checkAcceptableQuorum")
+		random_quorum_slot_dict = hist_for_replica[random_quorum[0]].copy()
+		#output("checkAcceptableQuorum 2")
+		#output("hist_for_replica[0]",hist_for_replica[0])
+		#output("hist_for_replica[2]",hist_for_replica[2])
+		for replica_ind in random_quorum:
+			output("replica_ind is ",replica_ind)
+			SOdict = hist_for_replica[replica_ind] #for current replica
+			#output("checkAcceptableQuorum 4")
+			keylist = SOdict.keys()
+			#output("checkAcceptableQuorum 5")
+			#output("1hist_for_replica[0]",hist_for_replica[0])
+			#output("1hist_for_replica[2]",hist_for_replica[2])
+			for key in keylist:
+				if key in random_quorum_slot_dict.keys():
+					#output("checkAcceptableQuorum 6")
+					if random_quorum_slot_dict[key] != SOdict[key]:
+						#output("checkAcceptableQuorum 7")
+						output("checkAcceptableQuorum returning False for random_quorum : ",random_quorum)
+						return False
+				else:
+					#output("checkAcceptableQuorum 8")
+					#output("2hist_for_replica[0]",hist_for_replica[0])
+					#output("2hist_for_replica[2]",hist_for_replica[2])
+					random_quorum_slot_dict[key] = SOdict[key]
+		#output("checkAcceptableQuorum 9")
+		#output("3hist_for_replica[0]",hist_for_replica[0])
+		#output("3hist_for_replica[2]",hist_for_replica[2])
+		output("checkAcceptableQuorum returning True for random_quorum : ",random_quorum)
+		return True
+	
+	
+	def computeLH():
+		LH = dict()
+		largest_history_replica_index = 0
+		largest_history_replica_length = 0
+		#output("1")
+		output("computeLH")
+		#output("len(hist_for_replica[2]) " , len(hist_for_replica[2]))
+		#output("len(hist_for_replica[0]) " , len(hist_for_replica[0]))
+
+		for quorum_rep_index in random_quorum:
+			output("inside for with replica index ", quorum_rep_index)
+			if(len(hist_for_replica[quorum_rep_index]) > largest_history_replica_length):
+				largest_history_replica_length = len(hist_for_replica[quorum_rep_index])
+				largest_history_replica_index = quorum_rep_index
+				output("largest_history_replica_index changed to ",largest_history_replica_index)
+		#output("3")
+		if largest_history_replica_index in hist_for_replica.keys():
+			LH = hist_for_replica[largest_history_replica_index]
+		
+		#######################################.    HACK #######
+		#if largest_history_replica_length == 0:
+			#send(("olympusdone",),to=self)
+		output("computeLH. Largest replica is ",largest_history_replica_index, " with length ",largest_history_replica_length, " and LH = ",LH)
+		#output("4")
+		deficit = dict()
+		for rep_index in random_quorum:
+			#output("5")
+			hist = hist_for_replica[rep_index]
+			deficit.clear()
+			#output("6")
+			for key in LH.keys():
+				if not key in hist:
+					#output("7")
+					deficit[key]=LH[key]
+			#output("8")
+			output("For replica ", rep_index, " : History was ",hist, " deficit is ",deficit)
+			send(("catchup",deficit,rep_index),to=replicas[rep_index])
+	
+	
+	def receive(msg=("wedgeStatement",whist,wchkptProof,r_index), from_=Replica):
+		output("wedgeStatement from Replica ",r_index)
+		#WH = WH.extend(whist)
+		#WC = WC.extend(wchkptProof)
+		try:
+			for i,val in enumerate(list(wchkptProof)):
+				checkptproofenc = replicapublicverifykeys[i].verify(wchkptProof[i])
+		except 	nacl.exceptions.BadSignatureError :
+			output("BadSignatureError: Bad Signatures for Completed Checkpoints Proofs received")
+
+		Rc.append(r_index)
+		#output("v0000000 ")
+		receivedReplicaCount = receivedReplicaCount+1
+		find_t = int((nreplica -1)/2)
+		output("wedgeStatement from Replica ",r_index," receivedReplicaCount = ",receivedReplicaCount," and Rc grows: ",Rc)
+		hist_for_replica[r_index] = whist;
+		output("hist_for_replica", r_index," = ",hist_for_replica[r_index])
+		#output("v1111111 ")
+		chkptProof_for_replica[r_index] = wchkptProof;
+		output("chkptProof_for_replica[r_index] = ",chkptProof_for_replica[r_index])
+		#output("v2222222 ")
+		hquorum = list() # should be list() ? yes, was dict() earlier
+		cquorum = list()
+		#quorum formation starts only when all n replicas have been received.
+		output("receivedReplicaCount is ",receivedReplicaCount," keepSearchingQuorum is",keepSearchingQuorum)
+		random_quorum_of_count = 0
+		while receivedReplicaCount >= find_t+1 and keepSearchingQuorum==0:
+			random_quorum_of_count+=1
+			if random_quorum_of_count >1:
+				break
+			output("v33333333 with find_t ",find_t, " receivedReplicaCount = ",receivedReplicaCount)
+			#random_quorum = random.sample(Rc, find_t + 1)
+			for combination in combinations(Rc, find_t + 1):
+				output(combination)
+				random_quorum = list(combination)
+				output("combination returned",combination)
+				#for yel in combination:
+					#output("len(hist_for_replica[r_index]) ",hist_for_replica[yel])
+				output("t+1 replicas have sent wedgeStatement. Random_quorum : ",random_quorum)
+			#output("v44444444")
+			#for quorum_replica_index in random_quorum:
+			#	hquorum = hquorum.update(hist_for_replica[quorum_replica_index])
+			#	cquorum = cquorum.extend(chkptProof_for_replica[quorum_replica_index])
+				if(checkAcceptableQuorum(random_quorum,hquorum,cquorum) == True):
+					output("Acceptable quorum with t+1 replicas : ",random_quorum)
+					keepSearchingQuorum = 1
+					computeLH() 
+					break
+				else:
+					keepSearchingQuorum = 0
+			
+				#Now compute LH
+		#computeLH()
+	
+
+	def choosequorumagain():
+		#output("choosequorumagain 1")
+		#find_t = (nreplica -1)/2
+		#output("choosequorumagain 2")
+		while keepSearchingQuorum==0:
+			#output("choosequorumagain 3")
+			random_quorum = random.sample(Rc, find_t+1)
+			hquorum = list() # should be list() : yes?
+			cquorum = list()
+			#output("choosequorumagain 4")
+			output("random_quorum is ",random_quorum)
+			if(checkAcceptableQuorum(random_quorum,hquorum,cquorum) == True):
+				keepSearchingQuorum = 1
+				#output("choosequorumagain 5") 
+			else:
+				keepSearchingQuorum = 0
+				#output("choosequorumagain 6")
+		computeLH()
+				
+	
+	#can using r_index cause problems for global r_index
+	def receive(msg=("caughtup",statehash,r_index,clientresultstmt,lastsuccessfulopno), from_=Replica):
+		#output("caughtup 1")
+		output("Replica ",r_index,"sent ",statehash)
+		if r_index == largest_history_replica_index:
+			lastClientResult = clientresultstmt
+			lastClientOpNum = lastsuccessfulopno
+		output("for replica " , r_index, "clientresultstmt is ",clientresultstmt," lastsuccessfulopno is ",lastsuccessfulopno)
+		chlist.append(statehash)
+		#output("caughtup 2")
+		#find_t = (nreplica -1)/2
+		#i=0
+		faulty_replica_quorum = 0
+		output("chlist length = ",len(chlist), " find_t+1 = ",find_t+1, " faulty_replica_quorum = ",faulty_replica_quorum)
+		if len(chlist)==find_t+1 and faulty_replica_quorum != 1:
+			output("All t+1 replicas have caughtup. CHash list length = ", len(chlist)  ," CHash list of state received ",chlist)
+			for i in range(0,len(chlist)-1):
+				if(chlist[i]!=chlist[i+1]):
+					output("MISMATCH OCCURED BECAUSE OF STATE MISMATCH. choose quorum again")
+					faulty_replica_quorum = 1
+					break
+			#faulty_replica_quorum = 0
+			#output("caughtup 4")
+			if faulty_replica_quorum == 0:
+				#output("caughtup 5")
+				finalch = chlist[0]
+				#output("caughtup 6")
+				random_replica_index = random.sample(random_quorum, 1)
+				#output("caughtup 6 - random_replica_index ",random_replica_index, "type ", type(random_replica_index))
+				output("sending get_running_state to replica ",random_replica_index[0])
+				send(("get_running_state",),to=replicas[random_replica_index[0]])
+				#output("caughtup 7")
+			else:
+				#output("caughtup 8")
+				output("choosequorumagain")
+				keepSearchingQuorum = 0
+				chlist.clear()
+				choosequorumagain() #implement thisS
+				#choose quorum again
+
+	
+	def initHist(state):
+		
+		confignum = confignum + 1
+		output("inside init history:------ STARTING THE NEW CONFIGURATION--------Config No ",confignum)
+		#counter = counter + 1
+		for i in range(0,nreplica):
+			#send(("replica_terminate",i),to=replicas[i])
+			#send(("canceltimers",),to=replicas[i])
+			#replicas[i].os._exit(-1)
+			
+			send(("donerep1",),to=replicas[i])
+			#send(("donerep",),to=replicas[i])
+
+
+		time.sleep (2000.0 / 1000.0)
+		'''
+		
+		ReplicaNodeName = 'ReplicaNode0'
+		replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+		start(replica1)
+		send(("testreplica",4),to=replica1)
+
+		ReplicaNodeName = 'ReplicaNode1'
+		replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+		start(replica1)
+		send(("testreplica",4),to=replica1)
+		'''
+
+		
+		replicas = []
+
+		for i in range(0,nreplica):
+			output('Starting New ReplicaNode' + str(i))
+			ReplicaNodeName = 'ReplicaNode' + str(i)
+			#output("before11111")
+			replica = new(replicam.Replica, args=(), at=ReplicaNodeName)
+			#output("after11111")
+			replicas.append(replica)
+
+
+		for replica in replicas:
+			start(replica)
+			#send(("testreplica",4),to=replica)
+
+		
+		replicaprivatesignkeys = []
+		replicapublicverifykeys =[]
+
+		for i in range(0,nreplica):	
+			signing_key = nacl.signing.SigningKey.generate()
+			replicaprivatesignkeys.append(signing_key)
+			verify_key = signing_key.verify_key
+			replicapublicverifykeys.append(verify_key)
+			
+		for i in range(0,nreplica):
+			send(("replicakeys",replicaprivatesignkeys[i],replicapublicverifykeys,clientpublicverifykeys),to=replicas[i])
+			
+		for i in range(0,nclient):
+			output("send clientkeys")
+			send(("clientkeys",clientprivatesignkeys[i],replicapublicverifykeys),to=clients[i])
+
+
+		fail_per_replica = dict()
+		fail_per_replica.clear()
+		for i,p in enumerate(list(replicas)):
+			#output("replica no"+str(i))
+			#setup(p,(replicas,nreplica,i,clients,olympus))
+			statedict = state.copy()
+			for k,v in fail_per_config.items():
+				if confignum == int(k):
+					for k1,v1 in v.items():
+						if i == int(k1):
+							fail_per_replica[k1] = v1
+			
+			#output("going to replica from initHist",fail_per_replica)
+			if i in fail_per_replica.keys():
+				output("going to replica for index",i,"is ",fail_per_replica[i])				
+				send(("setupreplica",replicas,nreplica,i,clients,self,h_timeout,nh_timeout,fail_per_replica[i],statedict,chkpt_interval,confignum),to=p)
+			else:
+				emptydict = {}
+				send(("setupreplica",replicas,nreplica,i,clients,self,h_timeout,nh_timeout,emptydict,statedict,chkpt_interval,confignum),to=p)
+
+
+
+		'''
+		for i,p in enumerate(list(replicas)):
+		#output("replica no"+str(i))		
+			if i in fail_per_replica.keys():
+				send(("setupreplica",replicas,nreplica,i,clients,self,h_timeout,nh_timeout,fail_per_replica[i],state,chkpt_interval),to=p)
+			else:
+				emptydict = {}
+				send(("setupreplica",replicas,nreplica,i,clients,self,h_timeout,nh_timeout,emptydict,state,chkpt_interval),to=p)
+		'''
+		for i in range(0,nclient):
+			send(("configchangedsetup",replicas,nreplica,confignum),to=clients[i])
+
+		keepSearchingQuorum = 0
+
+		reconfiginprocess = 0
+
+		receivedReplicaCount = 0
+
+		faulty_replica_quorum = 0
+
+
+		
+		#Rc.clear()
+		Rc = []
+		hist_for_replica.clear()
+		chkptProof_for_replica.clear()
+		random_quorum = []
+		chlist = []
+		finalch = None
+		output("intiHist  ended ")
+
+
+
+	
+	def updateClient():
+		output("send clientlastexecutedrequest for every client")
+		for i in range(0,nclient):
+			#output("send clientlastexecutedrequest for client",i, " lastClientResult is ",lastClientResult[i])
+			#output("send clientlastexecutedrequest for client",i, " lastClientOpNum is ",lastClientOpNum[i])
+			send(("clientlastexecutedrequest",lastClientResult[i],lastClientOpNum[i]),to=clients[i])
+		
+	def receive(msg=("send_running_state",receivedState,r_index), from_=Replica):
+		#output("send_running_state 1")
+		stateCryptoHash =  HASHER(str(receivedState).encode(), encoder=nacl.encoding.HexEncoder)
+		#output("send_running_state 2")
+		if stateCryptoHash == finalch:
+			#output("send_running_state 3")
+			output("In get_running_state, HASH of state sent by replica ",r_index, "matched. So, calling initHist.")
+			initHist(receivedState)
+			#flag unset for next configuration
+			
+			updateClient()
+		else:
+			#output("send_running_state 4")
+			output("In get_running_state, HASH of state sent by replica ",r_index, "did not match. So, sending get_running_state to some other replica.")
+			random_replica_index = random.sample(random_quorum, 1)
+			#output("send_running_state 5")
+			send(("get_running_state",),to=replicas[random_replica_index[0]])
+			#output("send_running_state 6")
+	#VPhase3 ENDS
+	
+	def receive(msg=("ifconfigchanged",cindexparam,clientconfignum), from_=Client):
+		output("Inside Olympus to check if the configuration has been changed")
+		if confignum != clientconfignum :
+			send(("configchangedsetup",replicas,nreplica,confignum),to=clients[cindexparam])
+		''' 
+		for i in range(0,nclient):
+			send(("configchangedsetup",replicas,nreplica),to=clients[i])
+		'''
+
 
 def main():
+
+	
 	resultstmtarr =[]
 
 	resultstmtarr.append(1)
@@ -53,11 +534,12 @@ def main():
 	config(channel="reliable")
 	config(channel="fifo")
 	
-	fail_per_replica = dict()	
+	fail_per_replica = dict()
+	fail_per_config = collections.defaultdict(dict)
 	cmtf = list() #cmtf stands for client_message_trigger_falure
 
  
-	config_vars = ['test_case_name','t','num_client','client_timeout','head_timeout','nonhead_timeout']
+	config_vars = ['test_case_name','t','num_client','client_timeout','head_timeout','nonhead_timeout','checkpt_interval']
 	var_to_val = dict()
 
 	hosts = list()
@@ -71,6 +553,9 @@ def main():
 	fail_cr = list()
 	fail_cmd = list()
 	# <c,r> vs failure commands
+
+	#confignum = 0
+
 	fail_scenario = dict()
 	with open('config.txt', 'r') as f:
 		for line in f:
@@ -121,7 +606,8 @@ def main():
 							r = int(rep)
 							#parsetrigger(trigger,c,r)
 							#parsefailure(failure,c,r)
-							cmtf.clear()							
+							cmtf.clear()	
+							#VPhase3 STARTS
 							if trigger.startswith("client_request"):
 								trigger = trigger.replace("client_request", "")
 								trigger = trigger.strip('()')
@@ -133,40 +619,121 @@ def main():
 								trigger = trigger.replace("forwarded_request", "")
 								trigger = trigger.strip('()')
 								list_trigger = trigger.split(",")
-								cmtf.append(int(list_trigger[0]))
-								cmtf.append(int(list_trigger[1]))
-								cmtf.append(3)
-								output("Trigger forward_request is not yet implemented")
+								cmtf.append(int(list_trigger[0].strip()))
+								cmtf.append(int(list_trigger[1].strip()))
+								cmtf.append(1)
+								#output("Trigger forward_request is not yet implemented")
 							elif trigger.startswith("shuttle"):
 								trigger = trigger.replace("shuttle", "")
 								trigger = trigger.strip('()')
 								list_trigger = trigger.split(",")
-								cmtf.append(int(list_trigger[0]))
-								cmtf.append(int(list_trigger[1]))
-								cmtf.append(1)
+								cmtf.append(int(list_trigger[0].strip()))
+								cmtf.append(int(list_trigger[1].strip()))
+								cmtf.append(2)
 							elif trigger.startswith("result_shuttle"):
 								trigger = trigger.replace("result_shuttle", "")
 								trigger = trigger.strip('()')
 								list_trigger = trigger.split(",")
-								cmtf.append(int(list_trigger[0]))
-								cmtf.append(int(list_trigger[1]))
-								cmtf.append(2)
+								cmtf.append(int(list_trigger[0].strip()))
+								cmtf.append(int(list_trigger[1].strip()))
+								cmtf.append(3)							
+							elif trigger.startswith("wedge_request"):
+								trigger = trigger.replace("wedge_request", "")
+								trigger = trigger.strip('()')
+								trigger = trigger.strip()
+								cmtf.append(-1)
+								cmtf.append(int(trigger))
+								cmtf.append(4)
+							elif trigger.startswith("new_configuration"):
+								trigger = trigger.replace("new_configuration", "")
+								trigger = trigger.strip('()')
+								trigger = trigger.strip()
+								cmtf.append(-1)
+								cmtf.append(int(trigger))
+								cmtf.append(5)
+							elif trigger.startswith("checkpoint"):
+								trigger = trigger.replace("checkpoint", "")
+								trigger = trigger.strip('()')
+								trigger = trigger.strip()
+								cmtf.append(-1)
+								cmtf.append(int(trigger))
+								cmtf.append(6)
+							elif trigger.startswith("completed_checkpoint"):
+								trigger = trigger.replace("completed_checkpoint", "")
+								trigger = trigger.strip('()')
+								trigger = trigger.strip()
+								cmtf.append(-1)
+								cmtf.append(int(trigger))
+								cmtf.append(7)
+							elif trigger.startswith("get_running_state"):
+								trigger = trigger.replace("get_running_state", "")
+								trigger = trigger.strip('()')
+								trigger = trigger.strip()
+								cmtf.append(-1)
+								cmtf.append(int(trigger))
+								cmtf.append(8)
+							elif trigger.startswith("catch_up"):
+								trigger = trigger.replace("catch_up", "")
+								trigger = trigger.strip('()')
+								trigger = trigger.strip()
+								cmtf.append(-1)
+								cmtf.append(int(trigger))
+								cmtf.append(9)
 							else:
-								cmtf.append(3)
-								output("Wrong trigger or Phase3 trigger", trigger)
+								#cmtf.append(10)
+								output("Wrong trigger", trigger)
 							
 							if failure.startswith("change_operation"):
 								cmtf.append(0)
+								cmtf.append(-2)
 							elif failure.startswith("change_result"):
 								cmtf.append(1)
+								cmtf.append(-2)
 							elif failure.startswith("drop_result_stmt"):
 								cmtf.append(2)
-							else:
+								cmtf.append(-2)
+							elif failure.startswith("crash"):
 								cmtf.append(3)
-								output("Wrong trigger or Phase3 failure", failure)	
+								cmtf.append(-2)
+							elif failure.startswith("truncate_history"):
+								cmtf.append(4)
+								failure = failure.replace("truncate_history", "")
+								failure = failure.strip('()')
+								failure = failure.strip()
+								input_sleep_timer = int(failure)
+								cmtf.append(input_sleep_timer)
+							elif failure.startswith("sleep"):
+								cmtf.append(5)
+								#output("------------------------SLEEP ERROR CAN BE POSSIBLE------------------------")
+								failure = failure.replace("sleep", "")
+								failure = failure.strip('()')
+								failure = failure.strip()
+								input_sleep_timer = int(failure)
+								cmtf.append(input_sleep_timer)
+								#########################ERROR--------#################add sleep time here
+							elif failure.startswith("drop_checkpt_stmts"):
+								cmtf.append(11)
+								cmtf.append(-2)
+							elif failure.startswith("drop"):
+								cmtf.append(6)
+								cmtf.append(-2)
+							elif failure.startswith("increment_slot"):
+								cmtf.append(7)
+								cmtf.append(-2)
+							elif failure.startswith("extra_op"):
+								cmtf.append(8)
+								cmtf.append(-2)
+							elif failure.startswith("invalid_order_sig"):
+								cmtf.append(9)
+								cmtf.append(-2)
+							elif failure.startswith("invalid_result_sig"):
+								cmtf.append(10)
+								cmtf.append(-2)
+							else:
+								#cmtf.append(12)
+								output("Wrong trigger", failure)	
 
-								
-							
+							#VPhase3 ENDS							
 							cmtflist = list(cmtf)
 							list1 = list()
 							list1.append(cmtflist)
@@ -174,12 +741,18 @@ def main():
 								fail_per_replica[r].append(cmtflist)
 							else:
 								fail_per_replica[r] = list1
+							fail_per_config[c][r] = fail_per_replica[r]
 							#Vipul end
-
-	output("fail for replicas ",fail_per_replica)									
+	#output("99999999999999999999 ye lo ")
+	for k,v in fail_per_config.items():
+		for k1,v1 in v.items():
+			fail_per_replica[k1] = v1
+			output("fail for replica ",k1 ," for config ",k," is ",fail_per_replica[k1])
+	#output("fail for replicas for config ",fail_per_replica)										
 	c_timeout = var_to_val[config_vars.index('client_timeout')]/ 1000
 	h_timeout = var_to_val[config_vars.index('head_timeout')]/ 1000
 	nh_timeout = var_to_val[config_vars.index('nonhead_timeout')]/ 1000
+	chkpt_interval = var_to_val[config_vars.index('checkpt_interval')]
 	
 	output("MAIN done")
 	
@@ -209,30 +782,84 @@ def main():
                 ReplicaNodeName = 'ReplicaNode' + str(i)
                 replica = new(replicam.Replica, args=(), at=ReplicaNodeName)
                 replicas.append(replica)
+
 	
-	setup(olympus, (replicas,nreplica,clients,nclient))
+	'''
+	ReplicaNodeName = 'ReplicaNode4'
+	replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+	start(replica1)
+	send(("testreplica",1),to=replica1)
+	send(("donerep",),to=replica1)
+
+	send(("testreplica",5),to=replica1)
+	'''
+
+	setup(olympus, (replicas,nreplica,clients,nclient,fail_per_config,h_timeout,nh_timeout,chkpt_interval))
 	start(olympus)
 	for client in clients:
 		start(client)
 
+	
 	for replica in replicas:
 		start(replica)
+		
+
+	
 	#output("before test")
 	#send(("test",),to=clients[0])
 	#output("after test")
+	fail_per_replica.clear()
 	for i,p in enumerate(list(replicas)):
 		#output("replica no"+str(i))
 		#setup(p,(replicas,nreplica,i,clients,olympus))
-		if i in fail_per_replica.keys():
-			send(("setupreplica",replicas,nreplica,i,clients,olympus,h_timeout,nh_timeout,fail_per_replica[i]),to=p)
+		statedict = {}
+		for k,v in fail_per_config.items():
+			if int(k) == 0:
+				for k1,v1 in v.items():
+					if i == int(k1):
+						fail_per_replica[k1] = v1
+		
+		if i in fail_per_replica.keys():	
+			output("going to replica for index",i,"is ",fail_per_replica[i])		
+			send(("setupreplica",replicas,nreplica,i,clients,olympus,h_timeout,nh_timeout,fail_per_replica[i],statedict,chkpt_interval,0),to=p)
 		else:
 			emptydict = {}
-			send(("setupreplica",replicas,nreplica,i,clients,olympus,h_timeout,nh_timeout,emptydict),to=p)
+			send(("setupreplica",replicas,nreplica,i,clients,olympus,h_timeout,nh_timeout,emptydict,statedict,chkpt_interval,0),to=p)
+
+
+
+	'''
+	ReplicaNodeName = 'ReplicaNode4'
+	replica1 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+	start(replica1)
+	send(("testreplica",1),to=replica1)
+	send(("donerep",),to=replica1)
+
+	replica2 = new(replicam.Replica, args=(), at=ReplicaNodeName)
+	start(replica2)
+	send(("testreplica",2),to=replica2)
+	'''
+    #send(("donerep",),to=replica1)
+
+    
+
 
 	for i,c in enumerate(list(clients)):
 		#setup(p,(clients,nclient,i,replicas,nreplica,olympus,client_workload[i]))
 		#send(("result",result,c_index),to=clients[c_index])
-		send(("setupclient",clients,nclient,i,replicas,nreplica,olympus,client_workload[i],c_timeout),to=c)
+		send(("setupclient",clients,nclient,i,replicas,nreplica,olympus,client_workload[i],c_timeout,0,h_timeout),to=c)
+
+
+	#await(each(c in clients, has=received(('Done',), from_=c)))
+	#output("All clients done.")
+
+	#end_time = time.time()
+
+	
+	#output("elapsed time (seconds): ", end_time - start_time)
+
+
+	await(some(received(("donemain",), from_=p)))
 	
 	'''
 	setup(olympus, (replicas,nreplica,clients,nclient))
@@ -240,3 +867,5 @@ def main():
 	start(clients)
 	start(replicas)
 	'''
+
+
