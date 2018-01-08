@@ -1,0 +1,330 @@
+import nacl.encoding
+import nacl.signing
+import time
+import nacl.hash
+import random
+#clientm = import_da('Client')
+#replicam = import_da('Replica')
+HASHER = nacl.hash.sha256
+class Client(process):
+	def setup():
+		#output("client setup")
+		self.clients = None
+		self.nclient = None
+		self.c_index = None
+		self.replicas = None
+		self.nreplica = None
+		self.olympus = None
+		self.work = None
+		self.rhead = None
+		self.rtail = None
+		self.setcompleted = 0
+		self.requestid = 0
+
+		self.clientprivatekey = None
+		self.replicapublicverifykeys = []
+		self.keysreceived =  0
+		self.clienttimeout = 1000
+		
+		self.resultreceived = 0
+		#self.rhead = replicas[0]
+		#self.rtail = replicas[nreplica-1]
+	def receive(msg=("setupclient",clientsparam,nclientparam,c_indexparam,replicasparam,nreplicaparam,olympusparam,workparam,clienttimeoutparam), ):
+		#output("inside client receive setup")
+		nclient = nclientparam
+		c_index = c_indexparam
+		replicas = replicasparam
+		nreplica = nreplicaparam
+		olympus = olympusparam
+		work = workparam
+		
+		clienttimeout = clienttimeoutparam
+		rhead = replicas[0]
+		rtail = replicas[nreplica-1]
+		setcompleted  = 1
+		#output("inside client receive setup --before sending done1 to ITSELF")
+		#send(("done1",),to=self)
+
+	#send(("clientkeys",clientprivatesignkeys[i],replicapublicverifykeys),to=clients[i])
+	def receive(msg=("clientkeys",clientprivatekeyparam,replicapublicverifykeysparam),from_=Olympus ):
+		output("receive clientkeys")
+		clientprivatekey = clientprivatekeyparam
+		#output("clientprivatekey = clientprivatekeyparam",str(clientprivatekey) , " ", str(clientprivatekeyparam))
+		replicapublicverifykeys =  replicapublicverifykeysparam
+
+		keysreceived  = 1
+		#output("receive clientkeys 11111")
+	'''
+	def signit(msg):
+		encmsg = str.encode(msg)
+		#output("client key",clientprivatekey)
+		signedmsg = clientprivatekey.sign(encmsg)
+		return signedmsg
+	'''
+	'''
+	def receive(msg=("test",), ):
+		output("inside test..oops tst")
+		count = 0
+		while (count < 9):
+   			output("inside while")
+	'''
+	'''
+	def receive(msg=("ResultProofs",result,resultproof),from_=Replica):
+		output("INSIDE CLIENT RESULT PROOF RECEIVER")
+	'''
+
+	def testresultwithlocaldict(localClientDict,operation):
+		###########START CLIENT GRADING 5 - check that dictionary contains expected content at end of test case#######
+		########### COMPUTE LOCAL DICT named localClientDict = dict()
+		if operation.startswith("put"):
+			operation = operation.replace("put","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")
+			list_op[1] = list_op[1].strip("\'")
+			localClientDict[list_op[0]]=list_op[1]
+			#output("localClientDict " ,localClientDict[list_op[0]])
+			result = "OK"
+			#send(("result",result,c_index),to=clients[c_index])
+		elif operation.startswith("get"):				
+			operation = operation.replace("get","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")								
+			if list_op[0] in localClientDict:
+				result = localClientDict[list_op[0]]
+			else:
+				result = ""
+			#send(("result",result,c_index),to=clients[c_index])
+		elif operation.startswith("slice"):
+			operation = operation.replace("slice","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")
+			list_op[1] = list_op[1].strip("\'")
+			list_op[1]=list_op[1].strip("/'")
+			(start, sep, end) = list_op[1].partition(':')
+			starti = int(start)
+			endi = int(end)
+			if list_op[0] in localClientDict:				
+				'''
+				if starti not in range(0, len(localClientDict[list_op[0]])-1)) or endi not in range(1,len(localClientDict[list_op[0]])):
+					result = "FAIL"
+				else:
+					localClientDict[list_op[0]] = localClientDict[list_op[0]][int(start):int(end)]
+					result = "OK"
+				'''				
+				if (0 <= starti and starti <= len(localClientDict[list_op[0]])-1) and (1 <= endi and endi <= len(localClientDict[list_op[0]])):
+					localClientDict[list_op[0]] = localClientDict[list_op[0]][int(starti):int(endi)]
+					result = "OK"
+				else:
+					result = "FAIL1"				
+			else:
+				result = "FAIL"
+			#output("result ",result,"dict = ",localClientDict)
+			#send(("result",result,c_index),to=clients[c_index])
+		elif operation.startswith("append"):
+			#output("operation : ",operation)
+			operation = operation.replace("append","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")
+			list_op[1] = list_op[1].strip("\'")				
+			if list_op[0] in localClientDict:				
+				localClientDict[list_op[0]] = localClientDict[list_op[0]]+list_op[1]				
+				result = "OK"
+			else:
+				result = "FAIL"
+			#output("result ",result,"dict = ",localClientDict)
+			#send(("result",result,c_index),to=clients[c_index])
+		else:
+			output("Wrong operation performed at client - ",operation)
+								
+		###########END CLIENT GRADING 5 - check that dictionary contains expected content at end of test case#######
+
+	def run():
+		output("client starting")
+		#await(received(("done1",),))
+		#output("after client has received done1")
+		await(setcompleted  == 1 and keysreceived  == 1,)
+		#await(keysreceived  == 1,)
+		#await(received(("replicasetupcompleted",),from_=Replica))
+		#output("hey client")
+		time.sleep (500.0 / 1000.0)
+		localClientDict = dict()
+		for operation in work:
+			operation = operation.strip()
+			if operation.startswith("pseudorandom"):
+				operation = operation.replace("pseudorandom","")
+				operation = operation.strip("()")
+				list_op = operation.split(",")
+				list_op[0] = list_op[0].strip("\'")
+				list_op[1] = list_op[1].strip("\'")							
+				
+				prlistint = list()			
+				int_to_op = {0 : 'put', 1 : 'get', 2 : 'slice', 3 : 'append' }
+				#pr_keys = ['jedi','movie']
+				#pr_values = ['luke skywalker', 'luke', 'skywalker', 'star wars', 'star', 'wars']
+				pr_keys = ['1','2','3','4','5','6','7']
+				pr_values = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+				int_to_op1 = dict()
+				if 0 in int_to_op.keys():
+					int_to_op1[0] = int_to_op[0] + '(' + random.choice(pr_keys) + ',' + random.choice(pr_values) + ')'			
+				if 1 in int_to_op.keys():
+					int_to_op1[1] = int_to_op[1] + '(' + random.choice(pr_keys) + ')'
+				if 2 in int_to_op.keys():
+					int_to_op1[2] = int_to_op[2] + '(' + random.choice(pr_keys) + ',' + str(random.randint(0, 10)) + ':' + str(random.randint(0, 10)) + ')'
+				if 3 in int_to_op.keys():
+					int_to_op1[3] = int_to_op[3] + '(' + random.choice(pr_keys) + ',' + random.choice(pr_values) + ')'			
+				prlist = list()
+				random.seed(int(list_op[0]))
+				for i in range(int(list_op[1])):
+					prlistint.append(random.randint(0, 3))
+				for i in range(int(list_op[1])):
+					prlist.append(int_to_op1[prlistint[i]])
+				
+				#output("PRandom at client",prlistint)
+				output("PRandom with (", list_op[0], ",", list_op[1],") at client :",prlist)
+				for operation in prlist:
+					work.append(operation)
+					#operationenc = str.encode(operation)
+					#operationsigned = clientprivatekey.sign(operationenc)
+					
+				############ PSEUDOOOOOOO RANDOOMMMMMMNMNMNNNNNN.   ENDS .  ##################
+
+		for operation in work:	
+			output("Operation at the start of Client Id",c_index," is ",operation)		
+			operation = operation.strip()
+			if not operation.startswith("pseudorandom"):
+				requestid = requestid + 1
+				#output("client starting11111111")
+				operationenc = str.encode(operation)
+				#output("client starting222222")
+				operationsigned = clientprivatekey.sign(operationenc)
+				#output("client starting33333333")
+				#operationsigned = signit(operation)
+				retransmitfg = 0
+				
+				send(("clientrequest",operationsigned,c_index,requestid,retransmitfg),to=self.rhead)
+										
+				testresultwithlocaldict(localClientDict,operation)
+				#output("localClientDict : ",localClientDict, "of client ",c_index)
+
+			#await(some(received(("donerep",operation,c_index), from_=p)))
+				#if await(some(received(("ResultProofs",result,resultproof),from_=Replica))) :
+				if await(resultreceived  == 1 ):
+					resultreceived = 0
+					
+
+				elif timeout(clienttimeout):
+					output("INSIDE TIMEOUT")
+					retransmitfg = 1
+					for i in range(0,nreplica):	
+						send(("clientrequest",operationsigned,c_index,requestid,retransmitfg),to=replicas[i])
+
+
+			
+		output("localClientDict : ",localClientDict, "of client ",c_index)
+
+
+		await(received(("clientdone",),))
+			#output("operation in client run",operation)
+		#output("client ",c_index,"run successful")
+	def receive(msg=("ResultProofs",result,signedresultproofs,resultreceivedparam,slot),from_=Replica):
+		resultreceived = resultreceivedparam
+		output("INSIDE CLIENT RESULT PROOF RECEIVER: received result,signedresultproofs   for slot" ,slot)
+
+		#output("signedresultproofs lengthj is ",len(signedresultproofs))
+		#if len(resultstmtarr) != nreplica:
+		#	output("Sending reconfig to Olympus :One or more result statements are missing in result proof")
+		#Verification of result statements of result proofs sent by tail or other replicas 
+		resultstmtarr = []
+		
+		try:
+			for i,val in enumerate(list(signedresultproofs)):
+				
+				resultstmtenc = replicapublicverifykeys[i].verify(signedresultproofs[i])
+				
+				resultstmt = resultstmtenc.decode()
+				resultstmtarr.append(resultstmt)
+
+		
+			output("Result Statements verified successfully for all replicas resultstmtarr is ",resultstmtarr)
+
+			allresultvalid = True
+			output("RESULT from tail is  ",result)
+			clresulthash =  HASHER(result.encode(), encoder=nacl.encoding.HexEncoder)
+			#output("result from tail is",result)
+			countreplicas = 0
+			for item in resultstmtarr:
+				(result, sep, resulthash) = item.partition('?')
+				output("result in result proof from replicas are ",result)
+				if str(clresulthash) == str(resulthash) :
+					countreplicas = countreplicas +1
+				else :
+					allresultvalid = None
+			output("countreplicas(number of replicas having same hash(result)) are   ",countreplicas,"total no of replicas(2t+1)  are ",nreplica)
+			majorityreplicas = (nreplica + 1)/2
+
+			if countreplicas >= majorityreplicas:
+				output("Client accepts the result since (t+1) majority of replicas have same result ",result)
+
+			
+
+			if allresultvalid == None :
+				output(" Sending reconfig to Olympus :One or more than one replicas have inconsistent result")
+				send(("reconfigrqt",),to=olympus)
+
+		except 	nacl.exceptions.BadSignatureError :
+				output(" Sending reconfig to Olympus :One or more than one resultproofs have been tempered")
+
+
+		
+
+	def receive(msg=("CachedResultProofs",result,signedresultproofs),from_=Replica):
+
+		output("Client received response from 1 of the replica after sending request to all after time out")
+
+		resultstmtarr = []
+		
+		try:
+			for i,val in enumerate(list(signedresultproofs)):
+				
+				resultstmtenc = replicapublicverifykeys[i].verify(signedresultproofs[i])
+				
+				resultstmt = resultstmtenc.decode()
+				resultstmtarr.append(resultstmt)
+
+		
+			output("Result Statements verified successfully for all replicas resultstmtarr is ",resultstmtarr)
+
+			allresultvalid = True
+			output("RESULT from tail is  ",result)
+			clresulthash =  HASHER(result.encode(), encoder=nacl.encoding.HexEncoder)
+			#output("result from tail is",result)
+			countreplicas = 0
+			for item in resultstmtarr:
+				(result, sep, resulthash) = item.partition('?')
+				output("result in result proof from replicas are ",result)
+				if str(clresulthash) == str(resulthash) :
+					countreplicas = countreplicas +1
+				else :
+					allresultvalid = None
+			output("countreplicas(number of replicas having same hash(result)) are   ",countreplicas,"total no of replicas(2t+1)  are ",nreplica)
+			majorityreplicas = (nreplica + 1)/2
+
+			if countreplicas >= majorityreplicas:
+				output("Client accepts the result since (t+1) majority of replicas have same result ",result)
+
+			
+
+			if allresultvalid == None :
+				output(" Sending reconfig to Olympus :One or more than one replicas have inconsistent result")
+				send(("reconfigrqt",),to=olympus)
+
+		except 	nacl.exceptions.BadSignatureError :
+				output(" Sending reconfig to Olympus :One or more than one resultproofs have been tempered")
+
+
+	
+

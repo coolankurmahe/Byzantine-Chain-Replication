@@ -1,0 +1,242 @@
+#import sys
+#sys.path.append('/Library/Python/2.7/site-packages')
+#sys.path.append('/System/Library')
+#sys.path.append('/System/Library/Frameworks/Python.framework/Versions/2.7/Extras/lib/python')
+import nacl.encoding
+import nacl.signing
+import time
+import nacl.hash
+import random
+
+HASHER = nacl.hash.sha256
+clientm = import_da('Client')
+replicam = import_da('Replica')
+
+class Olympus(process):
+	def setup(replicas,nreplica,clients,nclient):
+		#output("olympus setup successful")
+		self.replicaprivatesignkeys = []
+		self.replicapublicverifykeys = []
+		self.clientprivatesignkeys = []
+		self.clientpublicverifykeys = []
+	def run():
+		output("key generation started")
+		for i in range(0,nreplica):	
+			signing_key = nacl.signing.SigningKey.generate()
+			replicaprivatesignkeys.append(signing_key)
+			verify_key = signing_key.verify_key
+			replicapublicverifykeys.append(verify_key)
+			
+
+		for i in range(0,nclient):
+                        signing_key = nacl.signing.SigningKey.generate()
+                        clientprivatesignkeys.append(signing_key)
+                        verify_key = signing_key.verify_key
+                        clientpublicverifykeys.append(verify_key)
+		
+		for i in range(0,nreplica):
+			send(("replicakeys",replicaprivatesignkeys[i],replicapublicverifykeys,clientpublicverifykeys),to=replicas[i])
+		
+		for i in range(0,nclient):
+			output("send clientkeys")
+			send(("clientkeys",clientprivatesignkeys[i],replicapublicverifykeys),to=clients[i])
+
+		output("key generation ended")
+		await(received(("olympusdone",),))
+		
+
+def main():
+	resultstmtarr =[]
+
+	resultstmtarr.append(1)
+	output("len is ",len(resultstmtarr))
+	config(channel="reliable")
+	config(channel="fifo")
+	
+	fail_per_replica = dict()	
+	cmtf = list() #cmtf stands for client_message_trigger_falure
+
+ 
+	config_vars = ['test_case_name','t','num_client','client_timeout','head_timeout','nonhead_timeout']
+	var_to_val = dict()
+
+	hosts = list()
+	client_on_host = list()
+	replica_on_host = list()
+
+	# client in int vs workload in string
+	client_workload = dict()
+
+	fail_num = 0
+	fail_cr = list()
+	fail_cmd = list()
+	# <c,r> vs failure commands
+	fail_scenario = dict()
+	with open('config.txt', 'r') as f:
+		for line in f:
+			line.strip()
+			if line[0] != '#':
+				(key, sep, val) = line.partition('=')
+				if len(sep) != 0:
+					key=key.strip()
+					val = val.strip()
+					if key in config_vars:
+						if val.isdigit():
+							var_to_val[config_vars.index(key)] = int(val)
+						else:
+							var_to_val[config_vars.index(key)] = val						
+					if key == "hosts":
+						hosts = val.split(";")
+						# output(hosts)
+					if key == "client_hosts":
+						if len(hosts) != 0:
+							client_on_host = val.split(";")
+						client_on_host = list(map(int, client_on_host))
+						# output(client_on_host)
+					if key == "replica_hosts":
+						if len(hosts) != 0:
+							replica_on_host = val.split(";")
+						replica_on_host = list(map(int, replica_on_host))
+					if key.startswith("workload"):
+						key = key.replace("workload","")
+						key = key.strip("[]")
+						key1 = int(key)
+						client_workload[key1]= val.split(";")
+					if key.startswith("failures"):
+						key = key.replace("failures","")
+						key = key.strip("[]")
+						fail_scenario[key] = val.split(";")
+						#Vipul start
+						for fail in fail_scenario[key]:
+							fail=fail.strip()
+							#output(key, "->", fail)
+							index = fail.find(")")
+							index+=1
+							trigger = fail[:index]
+							failure = fail[index+1:]
+							trigger = trigger.strip()
+							failure = failure.strip()
+							(config1, sep, rep) = key.partition(',')
+							c = int(config1)
+							r = int(rep)
+							#parsetrigger(trigger,c,r)
+							#parsefailure(failure,c,r)
+							cmtf.clear()							
+							if trigger.startswith("client_request"):
+								trigger = trigger.replace("client_request", "")
+								trigger = trigger.strip('()')
+								list_trigger = trigger.split(",")
+								cmtf.append(int(list_trigger[0]))
+								cmtf.append(int(list_trigger[1]))
+								cmtf.append(0)
+							elif trigger.startswith("forwarded_request"):
+								trigger = trigger.replace("forwarded_request", "")
+								trigger = trigger.strip('()')
+								list_trigger = trigger.split(",")
+								cmtf.append(int(list_trigger[0]))
+								cmtf.append(int(list_trigger[1]))
+								cmtf.append(3)
+								output("Trigger forward_request is not yet implemented")
+							elif trigger.startswith("shuttle"):
+								trigger = trigger.replace("shuttle", "")
+								trigger = trigger.strip('()')
+								list_trigger = trigger.split(",")
+								cmtf.append(int(list_trigger[0]))
+								cmtf.append(int(list_trigger[1]))
+								cmtf.append(1)
+							elif trigger.startswith("result_shuttle"):
+								trigger = trigger.replace("result_shuttle", "")
+								trigger = trigger.strip('()')
+								list_trigger = trigger.split(",")
+								cmtf.append(int(list_trigger[0]))
+								cmtf.append(int(list_trigger[1]))
+								cmtf.append(2)
+							else:
+								cmtf.append(3)
+								output("Wrong trigger or Phase3 trigger", trigger)
+							
+							if failure.startswith("change_operation"):
+								cmtf.append(0)
+							elif failure.startswith("change_result"):
+								cmtf.append(1)
+							elif failure.startswith("drop_result_stmt"):
+								cmtf.append(2)
+							else:
+								cmtf.append(3)
+								output("Wrong trigger or Phase3 failure", failure)	
+
+								
+							
+							cmtflist = list(cmtf)
+							list1 = list()
+							list1.append(cmtflist)
+							if r in fail_per_replica.keys():
+								fail_per_replica[r].append(cmtflist)
+							else:
+								fail_per_replica[r] = list1
+							#Vipul end
+
+	output("fail for replicas ",fail_per_replica)									
+	c_timeout = var_to_val[config_vars.index('client_timeout')]/ 1000
+	h_timeout = var_to_val[config_vars.index('head_timeout')]/ 1000
+	nh_timeout = var_to_val[config_vars.index('nonhead_timeout')]/ 1000
+	
+	output("MAIN done")
+	
+	nreplica = 2 * int(var_to_val[config_vars.index('t')]) + 1
+	nclient = int(var_to_val[config_vars.index('num_client')])
+	#olympus = new(Olympus, args=())
+	#clients = list(new(Client, num = var_to_val[config_vars.index('num_client')], args = (olympus,)))
+	#replicas = list(new(Replica, num = 2 * var_to_val[config_vars.index('t')] - 1, args = (clients,)))
+	
+	olympus = new(Olympus)
+	#clients = list(new(Client, num = var_to_val[config_vars.index('num_client')]))
+	#replicas = list(new(Replica, num = 2 * var_to_val[config_vars.index('t')] + 1))
+    
+		
+	clients = []
+	replicas = []	
+	for i in range(0,nclient):
+        	output('ClientNode' + str(i))
+        	ClientNodeName = 'ClientNode' + str(i)
+        	client = new(clientm.Client, args=(), at=ClientNodeName)
+        	clients.append(client)
+
+	
+
+	for i in range(0,nreplica):
+                output('ReplicaNode' + str(i))
+                ReplicaNodeName = 'ReplicaNode' + str(i)
+                replica = new(replicam.Replica, args=(), at=ReplicaNodeName)
+                replicas.append(replica)
+	
+	setup(olympus, (replicas,nreplica,clients,nclient))
+	start(olympus)
+	for client in clients:
+		start(client)
+
+	for replica in replicas:
+		start(replica)
+	#output("before test")
+	#send(("test",),to=clients[0])
+	#output("after test")
+	for i,p in enumerate(list(replicas)):
+		#output("replica no"+str(i))
+		#setup(p,(replicas,nreplica,i,clients,olympus))
+		if i in fail_per_replica.keys():
+			send(("setupreplica",replicas,nreplica,i,clients,olympus,h_timeout,nh_timeout,fail_per_replica[i]),to=p)
+		else:
+			emptydict = {}
+			send(("setupreplica",replicas,nreplica,i,clients,olympus,h_timeout,nh_timeout,emptydict),to=p)
+
+	for i,c in enumerate(list(clients)):
+		#setup(p,(clients,nclient,i,replicas,nreplica,olympus,client_workload[i]))
+		#send(("result",result,c_index),to=clients[c_index])
+		send(("setupclient",clients,nclient,i,replicas,nreplica,olympus,client_workload[i],c_timeout),to=c)
+	
+	'''
+	setup(olympus, (replicas,nreplica,clients,nclient))
+	start(olympus)
+	start(clients)
+	start(replicas)
+	'''

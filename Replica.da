@@ -1,0 +1,739 @@
+import nacl.encoding
+import nacl.signing
+import time
+import nacl.hash
+import random
+
+HASHER = nacl.hash.sha256
+
+#clientm = import_da('Client')
+#replicam = import_da('Replica')
+class Replica(process):
+	def setup():
+		#output("replica setup")
+		self.replicas = None
+		self.nreplica = None
+		self.r_index = None
+		self.c_index = None
+		self.clients = None
+		self.olympus = None
+
+		self.rhead = None
+		self.rtail = None
+		self.nextreplica = None
+		self.prevreplica = None
+		self.slot = 0
+		self.operation = None
+		
+		self.orderstmt = None
+		self.signedorderstmt = None
+		self.signedproofsatslot = dict()
+		#self.signedorderproofs =[]
+
+		self.result = None
+		self.hashresult = None
+		#self.signedresultproofs = []
+		self.signedresultatslot = dict()
+
+		self.completeresultproofs = []
+
+		self.cancelheadtimer  = 0
+		#self.orderstmt = {'slot':'', 'operation':''}
+		self.orderproof = {'repind':'','signedorderstmt':''}
+		self.history = dict()
+		self.opdict = dict()
+		self.clientidmap = dict()
+		
+
+		self.replicaprivatekey = None
+		self.replicapublicverifykeys = []
+		self.clientpublicverifykeys = []	
+
+		self.headtimeout = 1000
+		self.nonheadtimeout = 1000
+
+		#These give   count of different shuttles as described in project.txt
+		self.clientrequestno = dict()
+		self.shuttlerequestno = dict()
+		self.resultshuttlerequestno = dict()
+		self.failuretriggers = list()
+		self.fail_list_dic = dict()
+		self.clientrequesttrigger= list()
+		self.shuttletrigger= list()
+		self.resultshuttletrigger = list()
+
+
+		self.changeoperation  = 0 
+		self.changeresult  = 0
+		self.dropresultstmt = 0 
+		#output("replica setup end reached")
+	def setuphelper():
+		fail_list = failuretriggers
+		#output("vipul",fail_list)
+		#fail_list_dic = dict()
+		'''
+		output("fail_list",failuretriggers)
+		for item in fail_list:
+			output(item)
+			trig_dic = dict()
+			trig = item[2]
+			del item[2]
+			trig_dic[trig] = item
+			output("trig_dic[trig]",trig_dic[trig])
+			fail_list_dic.update(trig_dic)
+			output("fail_list_dic",fail_list_dic)
+		# for parsing 
+		for keys in fail_list_dic.keys():
+			if(keys==1):
+				output("yelo",fail_list_dic[keys])
+		'''
+
+		fail_list_dic = dict()
+		myarr = list()
+		arr_for0 = list()
+		arr_for1 = list()
+		arr_for2 = list()
+		count_0 = 0
+		count_1 = 0
+		count_2 = 0
+
+
+		for item in fail_list:
+			#output(item)
+			trig_dic = dict()
+			trig = item[2]
+			del item[2]
+			trig_dic[trig] = item
+			#output("trig_dic[trig]",trig_dic[trig])
+			if(trig == 0):				
+				arr_for0.extend(item)
+				count_0+=1
+			if(trig == 1):
+				arr_for1.extend(item)		
+			if(trig == 2):
+				arr_for2.extend(item)			
+			
+			#output("arr_for0",arr_for0)
+			#output("arr_for1",arr_for1)
+			#output("arr_for2",arr_for2)
+			
+			list_for0 = [arr_for0[x:x+3] for x in range(0, len(arr_for0), 3)]
+			#output("chunks",list_for0)
+			list_for1 = [arr_for1[x:x+3] for x in range(0, len(arr_for1), 3)]
+			#output("chunks",list_for1)
+			list_for2 = [arr_for2[x:x+3] for x in range(0, len(arr_for2), 3)]
+			#output("chunks",list_for2)
+
+			clientrequesttrigger = list_for0
+			shuttletrigger = list_for1
+			resultshuttletrigger = list_for2
+			
+			output("clientrequesttrigger is ",clientrequesttrigger)
+			output("shuttletrigger is ",shuttletrigger)
+			output("resultshuttletrigger is ",resultshuttletrigger)
+			
+
+
+	def receive(msg=("setupreplica",replicasparam,nreplicaparam,r_indexparam,clientsparam,olympusparam,headtimeoutparam,nonheadtimeoutparam,failuretriggersparam), ):
+		output("replica receive setup  starting")
+		replicas = replicasparam
+		nreplica = nreplicaparam
+		r_index = r_indexparam
+		clients = clientsparam
+		olympus = olympusparam
+		headtimeout = headtimeoutparam
+		nonheadtimeout = nonheadtimeoutparam
+		failuretriggers = failuretriggersparam
+
+		setuphelper()
+		'''
+		clientrequesttrigger= list_for0
+		shuttletrigger= fail_list_dic[1]
+		resultshuttletrigger = fail_list_dic[2]
+		'''
+		#output("After helper. 11111111")
+		rhead = replicas[0]
+		rtail = replicas[nreplica-1]
+		r_index = r_indexparam
+		
+		if r_index != nreplica-1: 
+			nextreplica = replicas[r_index + 1]
+
+		else:
+			nextreplica = None
+		
+		if r_index != 0: 
+			prevreplica = replicas[r_index - 1]
+
+		else:
+			prevreplica = None
+
+		#output("After helper. 2222222")
+		#self.signedorderproofs =[];
+
+
+		#self.orderstmt = {'slot':'', 'operation':''}
+		#self.orderproof={'repind':'','orderstmt':'','signedorderstmt':''}
+		#self.history = dict()
+		
+		'''
+		if r_index == nreplica-1:
+			#Must show log for Final output at replica end			
+			self.rnext = None			
+		else:
+			self.rnext = replicas[r_index+1]
+		'''
+
+		#self.opdict = dict()
+		#output("replica ",r_index," setup successful")
+
+	def receive(msg=("replicakeys",replicaprivatekeyparam,replicapublicverifykeysparam,clientpublicverifykeysparam),from_=Olympus ):
+		replicaprivatekey = replicaprivatekeyparam
+		replicapublicverifykeys = replicapublicverifykeysparam
+		clientpublicverifykeys = clientpublicverifykeysparam
+
+
+	def run():
+		output("replica started")		
+		await(some(received(("donerep",operation,c_index), from_=p)))		
+		#output("run of replica ",r_index)
+
+	def applyoperationondict():
+
+		operation = operation.strip()			
+		if operation.startswith("put"):
+			operation = operation.replace("put","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")
+			list_op[1] = list_op[1].strip("\'")
+			opdict[list_op[0]]=list_op[1]
+			output("opdict " ,opdict[list_op[0]])
+			result = "OK"
+			output("put ",result)
+			#send(("result",result,c_index),to=clients[c_index])
+		elif operation.startswith("get"):				
+			operation = operation.replace("get","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")								
+			if list_op[0] in opdict:
+				result = opdict[list_op[0]]
+			else:
+				result = ""
+			output("get ",result)
+			#send(("result",result,c_index),to=clients[c_index])
+		elif operation.startswith("slice"):
+			operation = operation.replace("slice","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")
+			list_op[1] = list_op[1].strip("\'")
+			list_op[1]=list_op[1].strip("/'")
+			(start, sep, end) = list_op[1].partition(':')
+			starti = int(start)
+			endi = int(end)
+			if list_op[0] in opdict:				
+							
+				if (0 <= starti and starti <= len(opdict[list_op[0]])-1) and (1 <= endi and endi <= len(opdict[list_op[0]])):
+					opdict[list_op[0]] = opdict[list_op[0]][int(starti):int(endi)]
+					result = "OK"
+				else:
+					result = "FAIL1"				
+			else:
+				result = "FAIL"
+			output("slice ",result)
+			#output("result ",result,"dict = ",opdict)
+			#send(("result",result,c_index),to=clients[c_index])
+		elif operation.startswith("append"):
+			operation = operation.replace("append","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")
+			list_op[1] = list_op[1].strip("\'")
+			if list_op[0] in opdict:				
+				opdict[list_op[0]] = opdict[list_op[0]]+list_op[1]				
+				result = "OK"
+			else:
+				result = "FAIL"
+			output("append")	
+		else:
+			output("Wrong operation performed at client - ",operation)
+		'''	
+		elif operation.startswith("pseudorandom"):
+			#delete this elif later
+			operation = operation.replace("pseudorandom","")
+			operation = operation.strip("()")
+			list_op = operation.split(",")
+			list_op[0] = list_op[0].strip("\'")
+			list_op[1] = list_op[1].strip("\'")
+			result="PSEUDO done"	
+		'''		
+		
+
+	def ordercommand():
+		precond1 = True # not necessary
+		precond2 = True
+		#output("ORDER COMMAND1111111")
+		#output("ORDER COMMAND2222222 : inside forrrr slot",slot,"signedproofsatslot ",str(signedproofsatslot))
+		#for item in signedorderproofs:
+		signedorderproof =[]
+		if slot in signedproofsatslot.keys():
+			signedorderproof = signedproofsatslot[slot]
+			for item in signedorderproof:	
+				#output("ORDER COMMAND2222222 : inside forrrr item",item,"signedproofsatslot ",signedproofsatslot[slot])
+				prevorderstmtenc = replicapublicverifykeys[item["repind"]].verify(item["signedorderstmt"])
+				pervorderstmt = prevorderstmtenc.decode()
+				if pervorderstmt != orderstmt:
+					precond1 = None
+			'''		
+		if slot in history:
+			if history[slot] != orderstmt["operation"]: 
+				precond2 = None
+		'''
+		
+		if precond1 == None  :
+			output("Send Reconfiguration request to Olympus because of misbehaviour o and o' for single s or replicas not signed correctly")
+			send(("reconfigrqt",),to=olympus)
+		else:
+			#if the precondition are satisfied, then add order stmt to order proofs and append order in history as well
+			
+			output("Previous Replicas OrderStmt Validation successful: OrderStmt is ",orderstmt)
+
+			#Failure injection 
+			if changeoperation == 1 :
+				output("change_operation() failure has been injected at Replica",r_index," Client",c_index," slot ",slot)
+				orderstmt = str(slot)+"?"+ "get('x')"
+
+			encorderstmt = str.encode(orderstmt)
+			signedorderstmt = replicaprivatekey.sign(encorderstmt)
+			orderproof["repind"] = r_index
+			orderproof["signedorderstmt"] = signedorderstmt
+			
+			#output("Signed (replica private key) OrderStmt is ",signedorderstmt)
+
+			signedorderproof.append(orderproof)
+			signedproofsatslot[slot] = signedorderproof
+		
+			history[slot] = operation
+
+			output("Signed orderstmt are appended to orderproof and history")
+
+	
+
+
+	def transmitshuttle(combinedrqtid,retransmitfg):
+
+		ordercommand()
+
+		applyoperationondict()
+
+		output(" Result is  ",result)
+
+		#output("AAAAAAAA",type(result))
+		hashresult =  HASHER(result.encode(), encoder=nacl.encoding.HexEncoder)
+
+		resultstmt = ""+result+"?" + str(hashresult)
+
+		encresultstmt = str.encode(resultstmt)
+		signedresultstmt = replicaprivatekey.sign(encresultstmt)
+
+		if retransmitfg == 0:
+			output("shuttle inside transmitshuttle() : resultstmt is ",resultstmt,"  signedresultstmt is ",signedresultstmt)
+
+		else:
+			output("forward request inside transmitshuttle() : resultstmt is ",resultstmt,"  signedresultstmt is ",signedresultstmt)
+
+		#okhashresult =  HASHER("OK".encode(), encoder=nacl.encoding.HexEncoder)
+		#okresultstmt = ""+okhashresult+"?" + str(okhashresult)
+		
+		if r_index == 0:
+			signedresultproof = []
+			#signedresultproof.append(resultstmt)
+			signedresultproof.append(signedresultstmt)
+			signedresultatslot[slot] = signedresultproof
+
+		else :
+			signedresultproof = signedresultatslot[slot]
+			#signedresultproof.append(resultstmt)
+			signedresultproof.append(signedresultstmt)
+			signedresultatslot[slot] = signedresultproof
+
+		#output("shuttle inside transmitshuttle() : signedresultatslot[slot] is ",signedresultatslot[slot])
+		#output("Ankur :Orginal Result and ResultProofs sent from Tail :   result sent is ",result,signedresultatslot[slot])
+		'''	
+		if slot in signedresultatslot.keys():
+			signedresultproofs = signedresultatslot[slot]
+			signedresultproofs.append(resultstmt)
+			signedresultatslot[slot] = signedresultproofs
+		'''
+		#output("Ankur :11111")
+		if nextreplica!=None:
+				#send(("shuttle",signedorderstmt,signedorderproofs,c_index),to=nextreplica)
+				send(("shuttle",signedorderstmt,signedproofsatslot[slot],signedresultatslot[slot],c_index,combinedrqtid,retransmitfg),to=nextreplica)
+
+		else:
+
+			if changeresult == 1:
+				#output("Ankur :111222")
+				output("change_result() failure has been injected at Replica",r_index," Client",c_index," slot ",slot)
+				result = "OK"
+				hashresult =  HASHER(result.encode(), encoder=nacl.encoding.HexEncoder)
+				resultstmt = ""+result+"?" + str(hashresult)
+				#output("Ankur :222222")
+				#output("Ankur : signedresultatslot[slot][r_index-1] is ",str(signedresultatslot[slot][r_index-1]))
+				#output("Ankur : Result and ResultProofs sent from Tail :   result sent is ",result,signedresultatslot[slot])
+				signedresultatslot[slot][r_index-1] = resultstmt
+
+			if dropresultstmt == 1:
+
+				output("shuttle: drop_resultstmt() failure has been injected at Replica",r_index," Client",c_index," slot ",slot," message no",shuttlerequestno[c_index])
+
+			
+				del signedresultatslot[slot][0] 
+			'''
+			if changeoperation == 1 :
+				#msg = 'get(x)'
+				#output("Ankur :3")
+				result = 'get(x)'
+				#hashresult1 =  HASHER(msg.encode(), encoder=nacl.encoding.HexEncoder)
+				#resultstmt1 = ""+hashresult1+"?" + str(hashresult1)
+				hashresult =  HASHER(result.encode(), encoder=nacl.encoding.HexEncoder)
+
+				resultstmt = ""+result+"?" + str(hashresult)
+
+				#output("Ankur :4")
+				signedresultatslot[slot][r_index-1] = resultstmt
+				#output("Ankur : signedresultatslot[slot][r_index-1] is : ",str(signedresultatslot[slot][r_index-1]))
+				#output("Result and ResultProofs sent from Tail :   result sent is ",result,signedresultatslot[slot])
+			'''
+
+			output(" TAIL Replica is reached . ")
+			
+			
+			output("Result  sent from Tail :   result sent is ",result)
+
+
+			sentsignaltoclient  = 1
+
+			if retransmitfg == 1:
+				cancelheadtimer  = 1
+				send(("cancelheadtimer",cancelheadtimer),to=replicas[0])
+
+			#if c_index != 1:  #if c_index != 0:   TESTING CLIENT TIMEOUT
+			send(("ResultProofs",result,signedresultatslot[slot],sentsignaltoclient,slot),to=clients[c_index])
+
+			if prevreplica != None :
+				output("result just before sending to previous replica ",result)
+
+				resultproofdict = dict()
+				resultproofdict["result"] = result
+				resultproofdict["signedresultatslot"] = signedresultatslot[slot]
+
+				clientidmap[combinedrqtid] = resultproofdict
+
+				# if c_index != 1:  #if c_index != 0:   TESTING FORWARD SHUTTLE AFTER CLIENT TIMEOUT
+				send(("resultshuttle",result,signedresultatslot[slot],combinedrqtid,c_index),to=prevreplica)
+				#send(("resultshuttle",),to=prevreplica)
+
+		
+
+
+	def checkclientrequesttrigger(c,m):
+		#output ("inside checkclientrequesttrigger c = ",c,"m =",m)
+		for trigger in clientrequesttrigger:
+			if c == trigger[0] and m == trigger[1]:
+				if trigger[2] == 0:
+					changeoperation = 1
+				elif trigger[2] == 1:
+					changeresult = 1
+				elif trigger[2] ==2:
+					dropresultstmt = 1
+
+	#c: shuttletrigger[0], m = shuttletrigger[1] , f = shuttletrigger[2]
+	def checkshuttletrigger(c,m):
+		#shuttletrigger
+		for trigger in shuttletrigger:
+			if c == trigger[0] and m == trigger[1]:
+				if trigger[2] == 0:
+					changeoperation = 1
+				elif trigger[2] == 1:
+					changeresult = 1
+				elif trigger[2] ==2:
+					dropresultstmt = 1
+
+	def checkresultshuttletrigger(c,m):
+		#shuttletrigger
+		#output ("inside checkresultshuttletrigger c = ",c,"m =",m)
+		for trigger in resultshuttletrigger:
+			if c == trigger[0] and m == trigger[1]:
+				if trigger[2] == 0:
+					output("changeoperation")
+					changeoperation = 1
+				elif trigger[2] == 1:
+					output("changeresult")
+					changeresult = 1
+				elif trigger[2] ==2:
+					output("dropresultstmt")
+					dropresultstmt = 1
+	
+
+		#get('x')
+
+		#hash of 'OK'
+
+	def handleReTransmissionRqttoHead(combinedrqtid,retransmitfg):
+
+		if combinedrqtid in clientidmap:
+			#resultproofdict["result"] = resultparam
+			#resultproofdict["signedresultatslot"] = signedresultproofparam
+			output(" Client Request :Cached Result found for the unique (request id + client id).Therefore the result, resultproof will return from here itself.")
+			res = clientidmap[combinedrqtid]["result"]
+			signedresultproof = clientidmap[combinedrqtid]["signedresultatslot"]
+			output("Client Request : Cached Result is ",result," and result proofs are " ,signedresultproof," at Replica Index ",r_index)
+			send(("CachedResultProofs",res,signedresultproof),to=clients[c_index])
+			
+			output("\n \n")
+
+
+		else :
+			slot = slot + 1
+			output("Slot assigned by head is ",slot)
+			#output("client request: 222222")
+			orderstmt = ""+str(slot)+ "?" + operation
+
+			transmitshuttle(combinedrqtid,retransmitfg)
+
+			#Head starts the timeout and wait for the result if time out then send reconfig request to Olympus
+			if await(cancelheadtimer  == 1 ):
+				cancelheadtimer = 0
+					
+				headtimeout
+			elif timeout(headtimeout):
+				output("INSIDE HEAD TIMEOUT")
+				output("send reconfig request to Olympus")
+
+	def receive(msg=("cancelheadtimer",cancelheadtimerparam),):
+
+		cancelheadtimer = 1
+
+
+	def receive(msg=("clientrequest",operationparam,c_indexparam,requestid,retransmitfg), from_=Client):
+
+		
+		if retransmitfg == 0:
+			output("Client Request : Inside replica",str(r_index)," from Client",str(c_indexparam)," Request Id is ",requestid," Signed Operation from Client is ",operationparam)
+
+		else:
+			output("Forward Request : Inside replica",str(r_index)," from Client",str(c_indexparam)," Request Id is ",requestid," Signed Operation from Client is ",operationparam)
+		#output("client request : Inside replica",str(r_index)," from client ",str(c_indexparam))
+		if c_indexparam in clientrequestno.keys():
+			clientrequestno[c_indexparam] = clientrequestno[c_indexparam] + 1
+		else:
+			clientrequestno[c_indexparam] = 1
+
+		c_index = c_indexparam
+
+		output(" client",c_index,"  message no ",clientrequestno[c_index])
+		'''
+		changeoperation = 0;
+		changeresult = 0
+		dropresultstmt = 0
+		'''
+		changeoperation = 0
+		changeresult = 0
+		dropresultstmt = 0
+		
+
+		checkclientrequesttrigger(c_indexparam,clientrequestno[c_indexparam])
+
+
+		combinedrqtid = "Client" + str(c_index) + str(requestid)
+
+		if combinedrqtid in clientidmap:
+			#resultproofdict["result"] = resultparam
+			#resultproofdict["signedresultatslot"] = signedresultproofparam
+			output(" Client Request :Cached Result found for the unique (request id + client id).Therefore the result, resultproof will return from here itself.")
+			res = clientidmap[combinedrqtid]["result"]
+			signedresultproof = clientidmap[combinedrqtid]["signedresultatslot"]
+			output("Client Request : Cached Result is ",result," and result proofs are " ,signedresultproof," at Replica Index ",r_index)
+			send(("CachedResultProofs",res,signedresultproof),to=clients[c_index])
+			
+			output("\n \n")
+
+		else :
+
+			output(operationparam)
+			operationenc = clientpublicverifykeys[c_index].verify(operationparam)
+			
+			operation = operationenc.decode()
+			output("Client Request : Verified Operation is ",operation)
+			
+		
+			if r_index == 0 :
+				if retransmitfg == 0:
+					slot = slot + 1
+					output("Slot assigned by head is ",slot)
+					#output("client request: 222222")
+					orderstmt = ""+str(slot)+ "?" + operation
+
+					transmitshuttle(combinedrqtid,retransmitfg)
+				else :
+					handleReTransmissionRqttoHead(combinedrqtid,retransmitfg)
+				'''
+				ordercommand()		
+			
+				applyoperationondict()
+				output("clientrequest : result is ",result)
+		
+				if nextreplica!=None:
+					send(("shuttle",signedorderstmt,signedproofsatslot[slot],c_index),to=nextreplica)
+				'''
+		output("\n \n ")
+
+
+	def receive(msg=("shuttle",signedorderstmtparam,signedorderproofsparam,signedresultproofparam,c_indexparam,combinedrqtid,retransmitfg), from_=Replica):
+		
+		if retransmitfg == 0:
+			output("Shuttle : Inside replica",str(r_index)," from Client",str(c_indexparam)," Signed Operation Stmt from previous Replicas is ",signedorderstmtparam,"Signed Order Proofs are :",signedorderproofsparam,"Signed Result Proofs are :",signedresultproofparam)
+
+		else :
+			output("Forward Request : Inside replica",str(r_index)," from Client",str(c_indexparam)," Signed Operation Stmt from previous Replicas is ",signedorderstmtparam,"Signed Order Proofs are :",signedorderproofsparam,"Signed Result Proofs are :",signedresultproofparam)
+
+		if c_indexparam in shuttlerequestno.keys():
+			shuttlerequestno[c_indexparam] = shuttlerequestno[c_indexparam] + 1
+		else:
+			shuttlerequestno[c_indexparam] = 1
+		
+		c_index = c_indexparam
+
+		if retransmitfg == 0:
+			output(" client",c_index,"  message no ",shuttlerequestno[c_index])
+
+		changeoperation = 0;
+		changeresult = 0
+		dropresultstmt = 0
+		checkshuttletrigger(c_indexparam,shuttlerequestno[c_indexparam])
+
+		orderstmtenc = replicapublicverifykeys[r_index-1].verify(signedorderstmtparam)
+		#output("11111")
+		orderstmt = orderstmtenc.decode()
+		#output("222222")
+		#signedorderproofs = signedorderproofsparam
+		
+		#output("3333")
+		#operation,orderslot = orderstmt.split('?')
+		(orderslot1, sep, operation) = orderstmt.partition('?')
+		orderslot = int(orderslot1)
+		
+		if retransmitfg == 0:
+			output("Shuttle : Verfied Operation is ",operation)
+		
+		else :
+			output("Forward Request: Verfied Operation is ",operation)
+
+		if orderslot == slot + 1:
+			slot = orderslot
+			output("Shuttle : Slot is ",slot)
+			signedproofsatslot[slot] = signedorderproofsparam
+			signedresultatslot[slot] = signedresultproofparam
+			
+
+			transmitshuttle(combinedrqtid,retransmitfg)
+			'''
+			ordercommand()
+
+			applyoperationondict()
+			output("shuttle  : result is ",result)
+
+			if nextreplica!=None:
+				send(("shuttle",signedorderstmt,signedproofsatslot[slot],c_index),to=nextreplica)
+			'''
+				 
+		else :
+			if retransmitfg == 0:
+				output("shuttle : Holes in the slot so the request cannot proceed")
+			else :
+				output("forward request : Holes in the slot so the request cannot proceed")
+
+		output("\n \n ")
+		  
+	def receive(msg=("resultshuttle",resultparam,signedresultproofparam,combinedrqtid,c_index), from_=nextreplica):
+	
+		output("ResultShuttle :  inside result shuttle Client Id is ",c_index," Result is ",resultparam," Unique Id for caching Result Shuttle :",combinedrqtid," Result Proof ",signedresultproofparam,)
+		if c_index in resultshuttlerequestno.keys():
+			resultshuttlerequestno[c_index] = resultshuttlerequestno[c_index] + 1
+		else:
+			resultshuttlerequestno[c_index] = 1
+
+		output(" message no ",resultshuttlerequestno[c_index])
+		
+
+		#Verification of result statements of result proofs sent by tail 
+		resultstmtarr = []
+		for i,val in enumerate(list(signedresultproofparam)):
+			resultstmtenc = replicapublicverifykeys[i].verify(signedresultproofparam[i])
+			#resultstmt = resultstmtenc.decode()
+			#resultstmtarr.append(resultstmt)
+
+		changeoperation = 0;
+		changeresult = 0
+		dropresultstmt = 0
+		checkresultshuttletrigger(c_index,resultshuttlerequestno[c_index])
+
+		completeresultproofs = signedresultproofparam
+		output("Caching of result and resultproofs in clientidmap ( which stores the result ,resultproof at unique Id ",combinedrqtid)
+		resultproofdict = dict()
+		resultproofdict["result"] = resultparam
+		resultproofdict["signedresultatslot"] = signedresultproofparam
+
+		if changeresult == 1:
+			output("resultshuttle: change_result() failure has been injected at Replica",r_index," Client",c_index," slot ",slot," message no",resultshuttlerequestno[c_index])
+
+			result = "OKK"
+			hashresult =  HASHER(result.encode(), encoder=nacl.encoding.HexEncoder)
+			resultstmt = ""+result+"?" + str(hashresult)
+
+
+			encresultstmt = str.encode(resultstmt)
+			signedresultstmt = replicaprivatekey.sign(encresultstmt)
+			#output("Ankur :222222")
+			#resultproofdict["signedresultatslot"] = resultstmt
+			#output("resultproofdict->signedresultatslot is",resultproofdict["signedresultatslot"])
+			completeresultproofs[r_index] = signedresultstmt
+
+		
+
+		if dropresultstmt == 1:
+			output("resultshuttle: drop_resultstmt() failure has been injected at Replica",r_index," Client",c_index," slot ",slot," message no",resultshuttlerequestno[c_index])
+
+
+
+			del completeresultproofs[0] 
+
+			#output("Ankur :222222")
+			
+
+
+		clientidmap[combinedrqtid] = resultproofdict
+
+		if prevreplica != None :
+			
+			send(("resultshuttle",resultparam,completeresultproofs,combinedrqtid,c_index),to=prevreplica)
+			
+
+
+		output("\n  ")
+			#insert in IdMap
+		'''
+		if changeresult == 1:
+				#output("Ankur :111222")
+				output("change_result() failure has been injected at Replica",r_index," Client",c_index," slot ",slot)
+				result = "OK"
+				hashresult =  HASHER(result.encode(), encoder=nacl.encoding.HexEncoder)
+				resultstmt = ""+result+"?" + str(hashresult)
+				output("Ankur :222222")
+				#output("Ankur : signedresultatslot[slot][r_index-1] is ",str(signedresultatslot[slot][r_index-1]))
+				output("Ankur : Result and ResultProofs sent from Tail :   result sent is ",result,signedresultatslot[slot])
+				signedresultatslot[slot][r_index-1] = resultstmt
+		'''
